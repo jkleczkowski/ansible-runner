@@ -1,7 +1,14 @@
-FROM debian:bullseye
-#LABEL maintainer "Jacek Kleczkowski <jacek@ksoft.biz>"
+#FROM mcr.microsoft.com/dotnet/core/sdk:3.1 as builder
+#WORKDIR /build
+#COPY ./dummy-host /build
 
-#RUN apt-get remove --purge -y $BUILD_PACKAGES $(apt-mark showauto) && rm -rf /var/lib/apt/lists/*
+#RUN dotnet build -c Release
+#RUN dotnet publish -c Release -o /build/publish --self-contained true --runtime linux-x64 
+#RUN ls -al /build/publish
+
+FROM debian:bullseye
+
+
 VOLUME /ansible
 
 ENV DOCKER_HOST "unix:///var/run/docker.sock"
@@ -9,9 +16,7 @@ ENV DOCKER_BIN "/usr/bin/docker"
 ENV DOCKER_IN_DOCKER start
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
 
-EXPOSE 9090
-# RUN  cat /opt/buildagent/bin/agent.sh
-ENTRYPOINT [ "/bin/bash","/run-services.sh" ]
+EXPOSE 5000
 
 WORKDIR /
 
@@ -32,20 +37,14 @@ RUN apt-get install -y \
     docker.io \
     --no-install-recommends
 
-#RUN    apt-get update 
-
-
-# install ansible & maven
-#RUN add-apt-repository ppa:ansible/ansible-2.9 && \
-#RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
+# install python3 kerberos client
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
     libkrb5-dev \
     python3-pip \
     krb5-user 
 
-RUN python3 -m pip install --upgrade pip
-RUN python3 -m pip install ansible pywinrm  pywinrm[kerberos]  kerberos requests requests-kerberos openshift && \
-    python3 -m pip install --upgrade setuptools 
+RUN python3 -m pip install --upgrade pip setuptools && \
+    python3 -m pip install ansible pywinrm pywinrm[kerberos] kerberos requests requests-kerberos 
 
 RUN ansible-galaxy collection install \
     community.kubernetes \
@@ -53,15 +52,11 @@ RUN ansible-galaxy collection install \
     community.general \
     community.libvirt
 
-#RUN ansible-galaxy collection install community.kubernetes && \
-#    ansible-galaxy collection install community.crypto && \
-#    ansible-galaxy collection install community.general && \
-#    ansible-galaxy collection install community.libvirt
 
 RUN apt-get clean
 
-COPY root/ /
-RUN chmod 0755 /run-*.sh /services/*
+#COPY root/ /
+#RUN chmod 0755 /run-*.sh /services/*
 
 #ARG CORE_VERSIONS="dotnet-sdk-2.1 dotnet-sdk-2.2 dotnet-sdk-3.0 dotnet-sdk-3.1"
 # Install PowerShell global tool
@@ -80,11 +75,21 @@ RUN chmod 0755 /run-*.sh /services/*
 #    && find /usr/share/powershell -print | grep -i '.*[.]nupkg$' | xargs rm \
 #    && rm -f -r /tmp/*
 
-#dodanie kubectl
-RUN curl -LO https://storage.googleapis.com/kubernetes-release/release/`curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt`/bin/linux/amd64/kubectl
-
-
-RUN apt-get upgrade -y 
-
+#RUN apt-get upgrade -y && \
+RUN apt-get clean autoclean && \
+    rm -rf /var/lib/{apt,dpkg,cache,log}/
+   #apt-get autoremove --yes && \
 
 WORKDIR /ansible
+VOLUME /root/.ssh
+VOLUME /ansible
+#dodanie kubectl
+RUN curl -o /usr/bin/kubectl -LO https://storage.googleapis.com/kubernetes-release/release/`curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt`/bin/linux/amd64/kubectl
+
+# RUN  cat /opt/buildagent/bin/agent.sh
+#COPY --from=builder /build/publish /dummy
+
+RUN chmod 0755 /usr/bin/kubectl /dummy/dummy-host
+
+#ENTRYPOINT [ "/dummy/dummy-host", "--contentRoot", "/dummy"]
+ENTRYPOINT [ "/bin/bash" ]
